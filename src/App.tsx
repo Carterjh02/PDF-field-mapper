@@ -1,28 +1,22 @@
-import './App.css'
+import { AppRouter } from './router/AppRouter'
+
+/* =========================================================
+   PDF FIELD MAPPER
+   Root Application Component
+   ========================================================= */
 
 /**
  * Root application component.
  *
- * This is a temporary starting screen.
+ * The application router manages navigation between
+ * pages and renders the shared application layout.
  *
- * Once the shared layout and router are implemented,
- * this component will render the application navigation.
+ * The global stylesheet is imported in main.tsx.
  */
 function App() {
+
   return (
-    <main className="app-container">
-      <div className="app-welcome">
-        <h1>PDF Field Mapper</h1>
-
-        <p>
-          Application setup complete.
-        </p>
-
-        <span>
-          Ready to begin development.
-        </span>
-      </div>
-    </main>
+    <AppRouter />
   )
 }
 
