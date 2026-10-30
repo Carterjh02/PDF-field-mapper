@@ -7,6 +7,10 @@ import {
   import clsx from 'clsx'
   
   import { AppLayout } from '../components/layouts/AppLayout'
+
+  import { DashboardPage } from '../pages/DashboardPage'
+  import { UploadProcessPage } from '../pages/UploadProcessPage'
+  import { DictionaryPage } from '../pages/DictionaryPage'
   
   import {
     navigationItems,
@@ -304,7 +308,7 @@ import {
                     key={page.path}
                     index
                     element={
-                      <PlaceholderPage page={page} />
+                      <DashboardPage />
                     }
                   />
                 )
@@ -322,13 +326,29 @@ import {
                 /^\//,
                 ''
               )
+
+              /**
+                * Connect completed pages to their actual components.
+                *
+                * Pages that haven't been developed yet will continue
+                * using the temporary PlaceholderPage component.
+                */
+                let pageElement = <PlaceholderPage page={page} />
+
+                if (page.path === '/upload') {
+                  pageElement = <UploadProcessPage />
+                }
+
+                if (page.path === '/dictionary') {
+                  pageElement = <DictionaryPage />
+                }
   
               return (
                 <Route
                   key={page.path}
                   path={relativePath}
                   element={
-                    <PlaceholderPage page={page} />
+                    pageElement
                   }
                 />
               )
