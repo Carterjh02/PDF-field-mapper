@@ -11,6 +11,9 @@ import {
   import { DashboardPage } from '../pages/DashboardPage'
   import { UploadProcessPage } from '../pages/UploadProcessPage'
   import { DictionaryPage } from '../pages/DictionaryPage'
+  import { TestFormsPage } from '../pages/TestFormsPage'
+  import { SettingsPage } from '../pages/SettingsPage'
+  import { EditorPage } from '../pages/EditorPage'
   
   import {
     navigationItems,
@@ -338,20 +341,33 @@ import {
                 if (page.path === '/upload') {
                   pageElement = <UploadProcessPage />
                 }
-
+                
                 if (page.path === '/dictionary') {
                   pageElement = <DictionaryPage />
                 }
-  
-              return (
-                <Route
-                  key={page.path}
-                  path={relativePath}
-                  element={
-                    pageElement
-                  }
-                />
-              )
+                
+                // Test Forms page.
+                if (page.path === '/test-forms') {
+                  pageElement = <TestFormsPage />
+                }
+                
+                // Settings page.
+                if (page.path === '/settings') {
+                  pageElement = <SettingsPage />
+                }
+                
+                // Editor page.
+                if (page.path === '/editor') {
+                  pageElement = <EditorPage />
+                }
+
+                return (
+                  <Route
+                    key={page.path}
+                    path={relativePath}
+                    element={pageElement}
+                  />
+                )
             })}
   
             {/* ===========================================
