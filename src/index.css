@@ -1,0 +1,122 @@
+@import "tailwindcss";
+
+/* =========================================================
+   PDF FIELD MAPPER
+   Global Styles
+   ========================================================= */
+
+/*
+ * Application design tokens.
+ *
+ * These colors establish the visual foundation for the
+ * application and can be adjusted as the UI develops.
+ */
+
+:root {
+  /* Primary application colors */
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+
+  /* Navigation */
+  --color-sidebar: #14243a;
+  --color-sidebar-hover: #1e3654;
+
+  /* Backgrounds */
+  --color-background: #f5f7fb;
+  --color-surface: #ffffff;
+
+  /* Text */
+  --color-text-primary: #172033;
+  --color-text-secondary: #64748b;
+
+  /* Borders */
+  --color-border: #e2e8f0;
+
+  /* PDF field categories */
+  --color-field-customer: #2563eb;
+  --color-field-company: #9333ea;
+  --color-field-job: #16a34a;
+  --color-field-generic: #f97316;
+
+  /* Recognition confidence */
+  --color-confidence-high: #dcfce7;
+  --color-confidence-medium: #fef9c3;
+  --color-confidence-low: #fee2e2;
+
+  /* Typography */
+  font-family:
+    Inter,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+
+  font-synthesis: none;
+
+  text-rendering: optimizeLegibility;
+
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* =========================================================
+   Application Defaults
+   ========================================================= */
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-text-primary);
+
+  overflow: hidden;
+}
+
+/*
+ * Keep box sizing predictable throughout the application.
+ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/*
+ * Use consistent typography for form controls.
+ */
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+/*
+ * Buttons should indicate interactivity.
+ */
+button {
+  cursor: pointer;
+}
+
+/*
+ * Disabled controls should not appear interactive.
+ */
+button:disabled {
+  cursor: not-allowed;
+}
+
+/*
+ * Preserve accessible keyboard focus indicators.
+ */
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
