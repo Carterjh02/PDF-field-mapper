@@ -1070,15 +1070,15 @@ import {
                   during backend development.
                 </p>
               </div>
+
+              </Card>
   
-            </Card>
+            </div>
   
           </div>
   
         </div>
+      )
+    }
   
-      </div>
-    )
-  }
-  
-  export default UploadProcessPage
+    export default UploadProcessPage

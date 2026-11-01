@@ -6,6 +6,8 @@ import { Header } from './Header'
 
 import { navigationItems } from '../../router/navigation'
 
+import { AccountControls } from '../auth/AccountControls'
+
 /* =========================================================
    PDF FIELD MAPPER
    Application Layout
@@ -125,6 +127,7 @@ export function AppLayout() {
         <Header
           title={pageTitle}
           description={pageDescription}
+          actions={<AccountControls />}
         />
 
         {/* ===============================================

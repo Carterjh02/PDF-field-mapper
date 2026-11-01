@@ -14,6 +14,11 @@ import {
   import { TestFormsPage } from '../pages/TestFormsPage'
   import { SettingsPage } from '../pages/SettingsPage'
   import { EditorPage } from '../pages/EditorPage'
+
+  import {
+    LoginPage,
+    RequireAuth,
+  } from '../pages/LoginPage'
   
   import {
     navigationItems,
@@ -251,49 +256,56 @@ import {
     )
   }
   
-  /* =========================================================
-     AppRouter Component
-     ========================================================= */
+  // ============================================================
+  // APPLICATION ROUTER
+  // ============================================================
+  //
+  // ROUTING STRUCTURE:
+  //
+  // /login
+  //   - Public login page
+  //   - Does not use the application layout
+  //
+  // /
+  //   - Protected application layout
+  //   - Requires Supabase authentication
+  //   - Requires administrator authorization
+  //
+  // All existing application pages remain nested
+  // inside AppLayout.
+  //
+  // ============================================================
   
-  /**
-   * Root application router.
-   *
-   * The shared AppLayout contains:
-   *
-   * - Sidebar
-   * - Header
-   * - Main content area
-   *
-   * Individual pages are nested inside the layout
-   * and rendered through its Outlet component.
-   *
-   * Navigation routes are generated from the
-   * centralized navigationItems configuration.
-   *
-   * NOTE:
-   * When we begin implementing actual pages,
-   * we'll replace the temporary PlaceholderPage
-   * elements with their corresponding page components.
-   */
   export function AppRouter() {
-  
     return (
       <HashRouter>
-  
         <Routes>
   
-          {/* ===============================================
-              Shared Application Layout
-              =============================================== */}
+          {/* ===================================================
+              Public Login Page
+              =================================================== */}
+  
+          <Route
+            path="/login"
+            element={<LoginPage />}
+          />
+  
+          {/* ===================================================
+              Protected Application Layout
+              =================================================== */}
   
           <Route
             path="/"
-            element={<AppLayout />}
+            element={
+              <RequireAuth>
+                <AppLayout />
+              </RequireAuth>
+            }
           >
   
-            {/* ===========================================
+            {/* =================================================
                 Application Pages
-                =========================================== */}
+                ================================================= */}
   
             {navigationItems.map((page) => {
   
@@ -304,15 +316,13 @@ import {
                * Other paths are registered as ordinary
                * child routes.
                */
-              if (page.path === '/') {
   
+              if (page.path === '/') {
                 return (
                   <Route
                     key={page.path}
                     index
-                    element={
-                      <DashboardPage />
-                    }
+                    element={<DashboardPage />}
                   />
                 )
               }
@@ -323,56 +333,62 @@ import {
                *
                * Example:
                *
-               * '/dictionary' → 'dictionary'
+               * '/dictionary' -> 'dictionary'
                */
+  
               const relativePath = page.path.replace(
                 /^\//,
                 ''
               )
-
-              /**
-                * Connect completed pages to their actual components.
-                *
-                * Pages that haven't been developed yet will continue
-                * using the temporary PlaceholderPage component.
-                */
-                let pageElement = <PlaceholderPage page={page} />
-
-                if (page.path === '/upload') {
-                  pageElement = <UploadProcessPage />
-                }
-                
-                if (page.path === '/dictionary') {
-                  pageElement = <DictionaryPage />
-                }
-                
-                // Test Forms page.
-                if (page.path === '/test-forms') {
-                  pageElement = <TestFormsPage />
-                }
-                
-                // Settings page.
-                if (page.path === '/settings') {
-                  pageElement = <SettingsPage />
-                }
-                
-                // Editor page.
-                if (page.path === '/editor') {
-                  pageElement = <EditorPage />
-                }
-
-                return (
-                  <Route
-                    key={page.path}
-                    path={relativePath}
-                    element={pageElement}
-                  />
-                )
+  
+              /*
+               * Connect completed pages to their
+               * corresponding components.
+               *
+               * Undeveloped pages will continue using
+               * the PlaceholderPage component.
+               */
+  
+              let pageElement = <PlaceholderPage page={page} />
+  
+              // Upload & Process
+              if (page.path === '/upload') {
+                pageElement = <UploadProcessPage />
+              }
+  
+              // Dictionary
+              if (page.path === '/dictionary') {
+                pageElement = <DictionaryPage />
+              }
+  
+              // Test Forms
+              if (page.path === '/test-forms') {
+                pageElement = <TestFormsPage />
+              }
+  
+              // Settings
+              if (page.path === '/settings') {
+                pageElement = <SettingsPage />
+              }
+  
+              // PDF Editor
+              if (page.path === '/editor') {
+                pageElement = <EditorPage />
+              }
+  
+              return (
+                <Route
+                  key={page.path}
+                  path={relativePath}
+                  element={pageElement}
+                />
+              )
+  
             })}
   
-            {/* ===========================================
+            {/* =================================================
                 Unknown Route Fallback
-                =========================================== */}
+                ================================================= */}
   
             <Route
               path="*"
@@ -382,7 +398,6 @@ import {
           </Route>
   
         </Routes>
-  
       </HashRouter>
     )
   }

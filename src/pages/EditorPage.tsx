@@ -8,6 +8,10 @@ import { Button } from '../components/common/Button'
 import { Card } from '../components/common/Card'
 import { Badge } from '../components/common/Badge'
 
+import { 
+  PdfPageViewer,
+} from '../components/pdf/PdfPageViewer'
+
 /* =========================================================
    PDF FIELD MAPPER
    PDF Editor Page
@@ -792,6 +796,24 @@ export function EditorPage() {
           next development phases.
         </p>
       </div>
+
+      {/* ===================================================
+        PDF VIEWER
+      ===================================================
+
+      First implementation of actual PDF rendering.
+
+      This component currently handles local file
+      selection, page rendering, navigation, zoom,
+      and field-extraction diagnostics.
+
+      Field overlays and editing tools will be
+      integrated in the next development phases.
+
+      =================================================== */}
+
+    <PdfPageViewer />
+
     </div>
   )
 }
