@@ -5,29 +5,43 @@
 //
 // PURPOSE:
 //
-// - Open PDF documents from the user's computer.
+// Provides the functional PDF viewing component used by
+// the main EditorPage.
+//
+// RESPONSIBILITIES:
+//
+// - Open PDF documents locally.
 // - Render PDF pages using PDF.js.
-// - Navigate between pages.
-// - Zoom in and out.
-// - Analyze existing interactive PDF fields.
-// - Display field inspection results.
+// - Navigate between document pages.
+// - Support PDF zooming.
+// - Inspect interactive PDF fields.
+// - Display interactive field overlays.
+// - Allow users to select PDF fields.
+// - Report document information to EditorPage.
 //
-// DEBUGGING:
+// STATE ARCHITECTURE:
 //
-// Detailed console logs have been added to help identify
-// problems when PDF.js fails to load a document.
+// PdfPageViewer manages:
+// - Active PDF document
+// - Current page
+// - Zoom level
+// - PDF inspection results
+// - Loading and rendering status
+// - Field overlay visibility
 //
-// The loading process is divided into four stages:
-//
-// STEP 1: Read the local PDF file.
-// STEP 2: Initialize the PDF.js loading task.
-// STEP 3: Wait for PDF.js to open the document.
-// STEP 4: Update the viewer with the loaded document.
+// EditorPage manages:
+// - Selected PDF field
+// - Draft dictionary mappings
+// - Field inspector
+// - Dictionary mapping panel
+// - Document fields list
 //
 // IMPORTANT:
 //
-// This component does not modify the original PDF.
-// No PDF documents are uploaded to Supabase.
+// - Original PDF files are never modified here.
+// - No PDF data is uploaded to Supabase.
+// - No dictionary mappings are saved to the database.
+// - PDF writing will be implemented separately.
 //
 // ============================================================
 
@@ -48,17 +62,33 @@ import {
   configurePdfJsWorker,
   inspectPdf,
   withPdfDeadline,
+  type InspectedPdfField,
   type PdfInspectionResult,
 } from '../../lib/pdf/inspectPdf'
+
+import {
+  PdfFieldOverlay,
+} from './PdfFieldOverlay'
 
 // ============================================================
 // PDF.JS CONFIGURATION
 // ============================================================
+//
+// Configure the worker used for PDF rendering and inspection.
+//
+// This uses the configuration established in inspectPdf.ts.
+//
+// PDF.js version: 4.10.38
+//
+// ============================================================
 
-// Configure the PDF.js worker before opening documents.
 configurePdfJsWorker()
 
-// Available PDF zoom levels.
+// ============================================================
+// VIEWER CONFIGURATION
+// ============================================================
+
+// Supported zoom levels.
 const ZOOM_LEVELS = [
   0.75,
   1,
@@ -68,27 +98,111 @@ const ZOOM_LEVELS = [
 ]
 
 // ============================================================
-// MAIN COMPONENT
+// VIEWER INFORMATION
+// ============================================================
+//
+// This interface defines the information that PdfPageViewer
+// shares with EditorPage.
+//
+// EditorPage uses these values to populate its right-hand
+// inspector and document fields list.
+//
 // ============================================================
 
-export function PdfPageViewer() {
+export interface PdfViewerInfo {
 
-  // ----------------------------------------------------------
-  // References
-  // ----------------------------------------------------------
+  // Name of the currently opened PDF.
+  fileName: string | null
 
+  // Current page displayed in the viewer.
+  pageNumber: number
+
+  // Total number of pages in the PDF.
+  pageCount: number
+
+  // Results returned by the PDF inspection service.
+  inspection: PdfInspectionResult | null
+
+  // Whether the document is currently opening.
+  isOpening: boolean
+
+  // Whether interactive fields are being inspected.
+  isInspecting: boolean
+
+}
+
+// ============================================================
+// PDF PAGE VIEWER PROPERTIES
+// ============================================================
+//
+// The viewer owns the original PDF File object.
+//
+// EditorPage receives that File through onSourceFileChange,
+// allowing it to send the original bytes to Electron
+// when the user saves the modified document.
+//
+// No PDF modifications occur inside this component.
+//
+// ============================================================
+
+interface PdfPageViewerProps {
+
+  selectedField: InspectedPdfField | null
+
+  onSelectField: (
+    field: InspectedPdfField | null
+  ) => void
+
+  onClearDraftMappings: () => void
+
+  onViewerInfoChange: (
+    info: PdfViewerInfo
+  ) => void
+
+  // NEW: Notify the Editor when the source PDF changes.
+  onSourceFileChange: (
+    file: File | null
+  ) => void
+
+}
+
+// ============================================================
+// MAIN PDF VIEWER COMPONENT
+// ============================================================
+
+export function PdfPageViewer({
+
+  selectedField,
+
+  onSelectField,
+
+  onClearDraftMappings,
+
+  onViewerInfoChange,
+
+  onSourceFileChange,
+
+}: PdfPageViewerProps) {
+
+  // ==========================================================
+  // REFERENCES
+  // ==========================================================
+
+  // Hidden file input used to open local PDF documents.
   const inputRef =
     useRef<HTMLInputElement>(null)
 
+  // Canvas used for rendering PDF pages.
   const canvasRef =
     useRef<HTMLCanvasElement>(null)
 
+  // Allows an ongoing inspection to be cancelled.
   const inspectionAbortRef =
     useRef<AbortController | null>(null)
 
-  // ----------------------------------------------------------
-  // Document State
-  // ----------------------------------------------------------
+  // ==========================================================
+  // DOCUMENT STATE
+  // ==========================================================
 
   const [file, setFile] =
     useState<File | null>(null)
@@ -102,9 +216,9 @@ export function PdfPageViewer() {
   const [zoomIndex, setZoomIndex] =
     useState(1)
 
-  // ----------------------------------------------------------
-  // Loading State
-  // ----------------------------------------------------------
+  // ==========================================================
+  // LOADING STATE
+  // ==========================================================
 
   const [isOpening, setIsOpening] =
     useState(false)
@@ -115,9 +229,9 @@ export function PdfPageViewer() {
   const [viewerError, setViewerError] =
     useState('')
 
-  // ----------------------------------------------------------
-  // Inspection State
-  // ----------------------------------------------------------
+  // ==========================================================
+  // PDF INSPECTION STATE
+  // ==========================================================
 
   const [inspection, setInspection] =
     useState<PdfInspectionResult | null>(null)
@@ -132,25 +246,81 @@ export function PdfPageViewer() {
     useState(false)
 
   // ==========================================================
-  // OPEN PDF DOCUMENT
+  // FIELD OVERLAY STATE
+  // ==========================================================
+
+  // Controls visibility of interactive field rectangles.
+  const [showFieldOverlays, setShowFieldOverlays] =
+    useState(true)
+
+  // ==========================================================
+  // SHARE VIEWER INFORMATION WITH EDITOR PAGE
   // ==========================================================
   //
-  // This effect runs whenever the selected file changes.
+  // Whenever the active document, current page, or inspection
+  // state changes, notify EditorPage.
   //
-  // PDF loading is independent of field extraction.
+  // This allows the parent component to display:
   //
-  // Diagnostic logs identify which operation is failing.
+  // - Document filename
+  // - Current page information
+  // - Interactive field counts
+  // - Fields belonging to the current page
+  // - Loading and inspection status
+  //
+  // EditorPage supplies a stable callback using useCallback.
   //
   // ==========================================================
 
   useEffect(() => {
 
-    // Do nothing when no PDF is selected.
+    onViewerInfoChange({
+
+      fileName: file?.name ?? null,
+
+      pageNumber,
+
+      pageCount: document?.numPages ?? 0,
+
+      inspection,
+
+      isOpening,
+
+      isInspecting,
+
+    })
+
+  }, [
+    file,
+    pageNumber,
+    document,
+    inspection,
+    isOpening,
+    isInspecting,
+    onViewerInfoChange,
+  ])
+
+  // ==========================================================
+  // OPEN PDF DOCUMENT
+  // ==========================================================
+  //
+  // This effect runs whenever a different PDF file is
+  // selected.
+  //
+  // The PDF is read locally and opened using PDF.js.
+  //
+  // Detailed diagnostic logging is preserved from our
+  // previous debugging milestone.
+  //
+  // ==========================================================
+
+  useEffect(() => {
+
+    // No PDF has been selected.
     if (!file) {
       return
     }
 
-    // Preserve the selected file for this effect.
     const selectedFile = file
 
     let cancelled = false
@@ -161,7 +331,7 @@ export function PdfPageViewer() {
     const controller = new AbortController()
 
     // --------------------------------------------------------
-    // Open File
+    // Open Selected PDF
     // --------------------------------------------------------
 
     async function openFile() {
@@ -197,10 +367,7 @@ export function PdfPageViewer() {
         GlobalWorkerOptions.workerSrc
       )
 
-      // ------------------------------------------------------
-      // Reset Viewer State
-      // ------------------------------------------------------
-
+      // Reset document loading state.
       setIsOpening(true)
       setViewerError('')
       setDocument(null)
@@ -215,7 +382,8 @@ export function PdfPageViewer() {
           '[PDF Viewer] STEP 1: Reading PDF file...'
         )
 
-        const fileReadStart = performance.now()
+        const fileReadStart =
+          performance.now()
 
         const bytes = await withPdfDeadline(
           selectedFile.arrayBuffer(),
@@ -241,11 +409,6 @@ export function PdfPageViewer() {
         )
 
         if (cancelled) {
-
-          console.warn(
-            '[PDF Viewer] Operation cancelled after file read.'
-          )
-
           return
         }
 
@@ -269,14 +432,6 @@ export function PdfPageViewer() {
         // PDF.js Loading Progress
         // ----------------------------------------------------
 
-        /**
-         * PDF.js may report loading progress while
-         * the document is being opened.
-         *
-         * These logs help determine whether PDF.js
-         * is actively processing the document or
-         * waiting for another operation.
-         */
         loadingTask.onProgress = (
           progress: {
             loaded: number
@@ -298,14 +453,15 @@ export function PdfPageViewer() {
         }
 
         // ====================================================
-        // STEP 3: WAIT FOR PDF DOCUMENT
+        // STEP 3: OPEN PDF DOCUMENT
         // ====================================================
 
         console.log(
           '[PDF Viewer] STEP 3: Waiting for PDF.js to open document...'
         )
 
-        const pdfOpenStart = performance.now()
+        const pdfOpenStart =
+          performance.now()
 
         const pdf = await withPdfDeadline(
           loadingTask.promise,
@@ -351,7 +507,7 @@ export function PdfPageViewer() {
       } catch (error) {
 
         // ====================================================
-        // ERROR DIAGNOSTICS
+        // PDF LOADING ERROR
         // ====================================================
 
         console.error(
@@ -388,10 +544,6 @@ export function PdfPageViewer() {
 
       } finally {
 
-        // ====================================================
-        // COMPLETION LOGGING
-        // ====================================================
-
         console.log(
           '[PDF Viewer] Open operation finished.'
         )
@@ -416,26 +568,21 @@ export function PdfPageViewer() {
 
     }
 
-    // --------------------------------------------------------
-    // Start PDF Loading
-    // --------------------------------------------------------
-
+    // Begin opening the document.
     void openFile()
 
     // --------------------------------------------------------
-    // Cleanup
+    // PDF Loading Cleanup
+    // --------------------------------------------------------
+    //
+    // Runs when another PDF is selected or the component
+    // unmounts.
+    //
+    // Initiates PDF.js cleanup without waiting indefinitely
+    // for a stalled worker.
+    //
     // --------------------------------------------------------
 
-    /**
-     * Runs when:
-     *
-     * - Another PDF is selected.
-     * - The component unmounts.
-     *
-     * Cancel pending operations and initiate cleanup.
-     *
-     * Cleanup is intentionally nonblocking.
-     */
     return () => {
 
       cancelled = true
@@ -482,9 +629,14 @@ export function PdfPageViewer() {
   //
   // Runs when:
   //
-  // - A PDF document finishes loading.
-  // - The selected page changes.
+  // - A PDF finishes opening.
+  // - The page number changes.
   // - The zoom level changes.
+  //
+  // The rendered canvas uses PDF.js viewport coordinates.
+  //
+  // This maintains compatibility with the field rectangles
+  // extracted by inspectPdf.ts.
   //
   // ==========================================================
 
@@ -500,9 +652,14 @@ export function PdfPageViewer() {
       return
     }
 
+    // Capture the values used by this rendering operation.
+    const activeDocument = document
+    const activeCanvas = canvas
+
     let cancelled = false
 
-    let cancelRender: (() => void) | null = null
+    let cancelRender:
+      (() => void) | null = null
 
     async function renderPage() {
 
@@ -516,9 +673,9 @@ export function PdfPageViewer() {
 
       try {
 
-        // ----------------------------------------------------
-        // Load Page
-        // ----------------------------------------------------
+        // ====================================================
+        // LOAD PDF PAGE
+        // ====================================================
 
         console.log(
           '[PDF Viewer] Retrieving page:',
@@ -526,7 +683,7 @@ export function PdfPageViewer() {
         )
 
         const page = await withPdfDeadline(
-          document!.getPage(pageNumber),
+          activeDocument.getPage(pageNumber),
           `opening page ${pageNumber}`
         )
 
@@ -538,9 +695,9 @@ export function PdfPageViewer() {
           '[PDF Viewer] Page retrieved successfully.'
         )
 
-        // ----------------------------------------------------
-        // Calculate Viewport
-        // ----------------------------------------------------
+        // ====================================================
+        // CALCULATE VIEWPORT
+        // ====================================================
 
         const viewport = page.getViewport({
           scale: ZOOM_LEVELS[zoomIndex],
@@ -551,55 +708,56 @@ export function PdfPageViewer() {
           2
         )
 
-        // ----------------------------------------------------
-        // Configure Canvas
-        // ----------------------------------------------------
+        // ====================================================
+        // CONFIGURE CANVAS
+        // ====================================================
 
-        canvas!.width = Math.ceil(
+        activeCanvas.width = Math.ceil(
           viewport.width * ratio
         )
 
-        canvas!.height = Math.ceil(
+        activeCanvas.height = Math.ceil(
           viewport.height * ratio
         )
 
-        canvas!.style.width =
+        activeCanvas.style.width =
           `${viewport.width}px`
 
-        canvas!.style.height =
+        activeCanvas.style.height =
           `${viewport.height}px`
 
-        const context = canvas!.getContext('2d')
+        const context =
+          activeCanvas.getContext('2d')
 
         if (!context) {
+
           throw new Error(
             'Unable to create the PDF canvas.'
           )
+
         }
 
-        // ----------------------------------------------------
-        // Render Page
-        // ----------------------------------------------------
+        // ====================================================
+        // RENDER PDF PAGE
+        // ====================================================
+        //
+        // PDF.js 4 uses canvasContext.
+        //
+        // Do not add the newer "canvas" property because
+        // it is not supported by our installed PDF.js version.
+        //
+        // ====================================================
 
         console.log(
           '[PDF Viewer] Rendering page to canvas...'
         )
 
-        // ----------------------------------------------------
-        // Render PDF Page
-        // ----------------------------------------------------
-        //
-        // PDF.js 4 uses canvasContext to identify the canvas
-        // rendering context.
-        //
-        // The explicit "canvas" property was introduced in
-        // newer PDF.js versions and is not supported here.
-        //
-        // ----------------------------------------------------
-        
         const task = page.render({
+
           canvasContext: context,
+
           viewport,
+
           transform: [
             ratio,
             0,
@@ -608,9 +766,11 @@ export function PdfPageViewer() {
             0,
             0,
           ],
+
         })
 
-        cancelRender = () => task.cancel()
+        cancelRender = () =>
+          task.cancel()
 
         await withPdfDeadline(
           task.promise,
@@ -625,7 +785,7 @@ export function PdfPageViewer() {
 
       } catch (error) {
 
-        // Cancel a render that may still be running.
+        // Cancel any outstanding render task.
         cancelRender?.()
 
         console.error(
@@ -676,17 +836,35 @@ export function PdfPageViewer() {
   // ==========================================================
   // INSPECTION CLEANUP
   // ==========================================================
+  //
+  // Cancel pending field inspection if the viewer unmounts.
+  //
+  // ==========================================================
 
   useEffect(() => {
 
     return () => {
+
       inspectionAbortRef.current?.abort()
+
     }
 
   }, [])
 
   // ==========================================================
   // FILE SELECTION
+  // ==========================================================
+  //
+  // Opening another PDF resets:
+  //
+  // - The previous document's inspection results.
+  // - The currently selected field.
+  // - Draft dictionary mappings.
+  // - The current page.
+  // - Field overlay visibility.
+  //
+  // The original PDF remains unchanged.
+  //
   // ==========================================================
 
   function onChooseFile(
@@ -696,7 +874,7 @@ export function PdfPageViewer() {
     const selected =
       event.currentTarget.files?.[0]
 
-    // Allow the same PDF to be selected again.
+    // Allow selecting the same PDF again.
     event.currentTarget.value = ''
 
     if (!selected) {
@@ -708,43 +886,83 @@ export function PdfPageViewer() {
       selected.name
     )
 
-    // Cancel any previous field inspection.
+    // Cancel previous inspection.
     inspectionAbortRef.current?.abort()
+    inspectionAbortRef.current = null
 
+    // Reset inspection state.
     setIsInspecting(false)
     setInspection(null)
     setInspectionError('')
     setInspectionMessage('')
 
+    // Reset document-dependent display state.
+    setDocument(null)
+    setViewerError('')
     setPageNumber(1)
 
+    // Reset field overlays.
+    setShowFieldOverlays(true)
+
+    // Clear selection in EditorPage.
+    onSelectField(null)
+
+    // Clear mappings belonging to the previous document.
+    onClearDraftMappings()
+
+    // Share the original File with EditorPage for the Save PDF workflow.
+    // The viewer remains responsible for opening and rendering the file.
+    onSourceFileChange(selected)
+
+    // Start loading the newly selected PDF.
     setFile(selected)
 
   }
 
   // ==========================================================
-  // ANALYZE INTERACTIVE FIELDS
+  // ANALYZE INTERACTIVE PDF FIELDS
   // ==========================================================
   //
-  // This remains separate from page rendering.
+  // This function calls inspectPdf.ts.
   //
-  // The user can inspect fields after the PDF opens.
+  // It extracts:
+  //
+  // - PDF page information
+  // - Interactive widget names
+  // - Widget types
+  // - Widget positions
+  // - Widget dimensions
+  //
+  // Inspection remains separate from page rendering.
   //
   // ==========================================================
 
   async function analyzeFields() {
 
-    if (!file || !document || isInspecting) {
+    if (
+      !file ||
+      !document ||
+      isInspecting
+    ) {
       return
     }
 
-    const controller = new AbortController()
+    const controller =
+      new AbortController()
 
-    inspectionAbortRef.current = controller
+    inspectionAbortRef.current =
+      controller
 
     setIsInspecting(true)
     setInspection(null)
     setInspectionError('')
+
+    // Clear previous field selection.
+    onSelectField(null)
+
+    // Previous widget mappings may no longer be valid
+    // after reanalysis.
+    onClearDraftMappings()
 
     setInspectionMessage(
       'Starting field analysis...'
@@ -815,7 +1033,10 @@ export function PdfPageViewer() {
 
     } finally {
 
-      if (inspectionAbortRef.current === controller) {
+      if (
+        inspectionAbortRef.current ===
+        controller
+      ) {
 
         inspectionAbortRef.current = null
 
@@ -828,19 +1049,37 @@ export function PdfPageViewer() {
   }
 
   // ==========================================================
-  // CURRENT INSPECTED PAGE
+  // CURRENT PAGE INFORMATION
   // ==========================================================
 
-  const currentPage = inspection?.pages.find(
-    (page) =>
-      page.pageNumber === pageNumber
-  )
+  const currentPage =
+    inspection?.pages.find(
+      (page) =>
+        page.pageNumber === pageNumber
+    ) ?? null
 
   // ==========================================================
-  // RENDER COMPONENT
+  // SELECTED FIELD INFORMATION
+  // ==========================================================
+  //
+  // EditorPage owns the selected field.
+  //
+  // The viewer only highlights it when it belongs to
+  // the currently displayed page.
+  //
+  // ==========================================================
+
+  const selectedPageField =
+    selectedField?.pageNumber === pageNumber
+      ? selectedField
+      : null
+
+  // ==========================================================
+  // COMPONENT RENDER
   // ==========================================================
 
   return (
+
     <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
 
       {/* =====================================================
@@ -855,9 +1094,9 @@ export function PdfPageViewer() {
             PDF Viewer
           </h2>
 
-          <p className="text-xs text-slate-500">
-            Local PDF rendering and field-extraction
-            diagnostics. The original file is unchanged.
+          <p className="mt-1 text-xs text-slate-500">
+            Open documents, inspect interactive fields,
+            and review their positions.
           </p>
 
         </div>
@@ -887,7 +1126,7 @@ export function PdfPageViewer() {
       </div>
 
       {/* =====================================================
-          SELECTED FILE
+          SELECTED DOCUMENT
           ===================================================== */}
 
       {file && (
@@ -906,6 +1145,8 @@ export function PdfPageViewer() {
 
         <div className="flex flex-wrap items-center gap-3 rounded-lg bg-slate-50 p-3">
 
+          {/* Previous Page */}
+
           <button
             type="button"
             disabled={
@@ -922,9 +1163,13 @@ export function PdfPageViewer() {
             Previous
           </button>
 
+          {/* Page Number */}
+
           <span className="text-sm text-slate-700">
             Page {pageNumber} of {document.numPages}
           </span>
+
+          {/* Next Page */}
 
           <button
             type="button"
@@ -941,6 +1186,8 @@ export function PdfPageViewer() {
           >
             Next
           </button>
+
+          {/* Zoom */}
 
           <label className="ml-auto flex items-center gap-2 text-xs text-slate-600">
 
@@ -979,7 +1226,7 @@ export function PdfPageViewer() {
       )}
 
       {/* =====================================================
-          LOADING INDICATOR
+          DOCUMENT LOADING INDICATOR
           ===================================================== */}
 
       {isOpening && (
@@ -994,7 +1241,7 @@ export function PdfPageViewer() {
       )}
 
       {/* =====================================================
-          ERROR DISPLAY
+          VIEWER ERROR
           ===================================================== */}
 
       {viewerError && (
@@ -1009,10 +1256,21 @@ export function PdfPageViewer() {
       )}
 
       {/* =====================================================
-          PDF CANVAS
+          PDF CANVAS AND INTERACTIVE FIELD OVERLAYS
+          =====================================================
+          
+          The canvas and overlay share a positioning container.
+
+          Field rectangles are positioned relative to the
+          rendered PDF canvas.
+
+          This preserves alignment when zooming.
+
           ===================================================== */}
 
       <div className="max-h-[700px] min-h-[160px] overflow-auto rounded-lg border border-slate-200 bg-slate-100 p-4 text-center">
+
+        {/* No Document Selected */}
 
         {!file && (
 
@@ -1022,14 +1280,69 @@ export function PdfPageViewer() {
 
         )}
 
-        <canvas
-          ref={canvasRef}
-          className={
-            document
-              ? 'mx-auto bg-white shadow-md'
-              : 'hidden'
-          }
-        />
+        {/* ===================================================
+            PDF PAGE POSITIONING CONTAINER
+            =================================================== */}
+
+        <div className="relative mx-auto w-fit">
+
+          {/* =================================================
+              PDF CANVAS
+              ================================================= */}
+
+          <canvas
+            ref={canvasRef}
+            className={
+              document
+                ? 'block bg-white shadow-md'
+                : 'hidden'
+            }
+          />
+
+          {/* =================================================
+              INTERACTIVE FIELD OVERLAYS
+              =================================================
+
+              Display overlays only when:
+
+              - The PDF is open.
+              - Field inspection has completed.
+              - Overlays are enabled.
+              - The current page has inspection data.
+              - The page is not actively rendering.
+
+              ================================================= */}
+
+          {document &&
+            inspection &&
+            currentPage &&
+            showFieldOverlays &&
+            !isRendering && (
+
+              <PdfFieldOverlay
+
+                fields={currentPage.fields}
+
+                scale={ZOOM_LEVELS[zoomIndex]}
+
+                selectedFieldId={
+                  selectedPageField?.id ?? null
+                }
+
+                onSelect={(field) => {
+
+                  // Send selection to EditorPage.
+                  onSelectField(field)
+
+                }}
+
+              />
+
+            )}
+
+        </div>
+
+        {/* Page Rendering Indicator */}
 
         {isRendering && (
 
@@ -1045,12 +1358,100 @@ export function PdfPageViewer() {
       </div>
 
       {/* =====================================================
-          INTERACTIVE FIELD ANALYSIS
+          FIELD OVERLAY CONTROLS
+          ===================================================== */}
+
+      {document && inspection && (
+
+        <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
+
+          <div className="flex flex-wrap items-center justify-between gap-3">
+
+            <div>
+
+              <h3 className="text-sm font-semibold text-slate-800">
+                Interactive Field Overlays
+              </h3>
+
+              <p className="mt-1 text-xs text-slate-500">
+                {currentPage?.fields.length ?? 0}
+                {' '}
+                fields detected on this page.
+              </p>
+
+            </div>
+
+            {/* Show / Hide Field Overlays */}
+
+            <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-700">
+
+              <input
+                type="checkbox"
+                checked={showFieldOverlays}
+                onChange={(event) =>
+                  setShowFieldOverlays(
+                    event.target.checked
+                  )
+                }
+                className="h-4 w-4 accent-blue-600"
+              />
+
+              Show Field Outlines
+
+            </label>
+
+          </div>
+
+          {/* =================================================
+              FIELD OUTLINE LEGEND
+              ================================================= */}
+
+          <div className="flex flex-wrap items-center gap-5 border-t border-slate-200 pt-3">
+
+            <div className="flex items-center gap-2">
+
+              <span className="h-3 w-3 rounded-sm border-2 border-blue-500 bg-blue-400/20" />
+
+              <span className="text-xs text-slate-600">
+                Detected Field
+              </span>
+
+            </div>
+
+            <div className="flex items-center gap-2">
+
+              <span className="h-3 w-3 rounded-sm border-2 border-amber-500 bg-amber-300/30" />
+
+              <span className="text-xs text-slate-600">
+                Selected Field
+              </span>
+
+            </div>
+
+          </div>
+
+        </div>
+
+      )}
+
+      {/* =====================================================
+          INTERACTIVE FIELD INSPECTION
+          =====================================================
+          
+          This section remains a temporary diagnostic tool.
+
+          Once automatic processing is implemented, PDF
+          inspection will happen as part of that workflow.
+
           ===================================================== */}
 
       {document && (
 
         <div className="space-y-2 border-t border-slate-200 pt-4">
+
+          {/* =================================================
+              INSPECTION ACTIONS
+              ================================================= */}
 
           <div className="flex flex-wrap items-center gap-3">
 
@@ -1066,6 +1467,8 @@ export function PdfPageViewer() {
                 ? 'Analyzing...'
                 : 'Analyze Interactive Fields'}
             </button>
+
+            {/* Cancel Analysis */}
 
             {isInspecting && (
 
@@ -1115,18 +1518,22 @@ export function PdfPageViewer() {
 
           )}
 
-          {/* Inspection Results */}
+          {/* =================================================
+              INSPECTION RESULTS
+              ================================================= */}
 
           {inspection && (
 
             <div className="space-y-2 text-xs text-slate-700">
 
               <p>
+
                 {inspection.pageCount} pages
                 {' · '}
                 {inspection.totalWidgets} widgets
                 {' · '}
                 {inspection.uniqueFieldNames} distinct field names
+
               </p>
 
               <p>
@@ -1135,6 +1542,8 @@ export function PdfPageViewer() {
                 {currentPage?.fields.length ?? 0} widgets
               </p>
 
+              {/* Diagnostic Field List */}
+
               <div className="max-h-40 overflow-auto rounded-lg bg-slate-50 p-3 font-mono">
 
                 {currentPage?.fields.length ? (
@@ -1142,14 +1551,16 @@ export function PdfPageViewer() {
                   currentPage.fields.map((field) => (
 
                     <div
-                      key={`${field.id}-${field.widgetIndex}`}
+                      key={`${field.pageNumber}-${field.id}-${field.widgetIndex}`}
                       className="break-all py-0.5"
                     >
+
                       {field.originalName || '(unnamed)'}
                       {' · '}
                       {field.fieldType}
                       {' · '}
                       widget {field.widgetIndex}
+
                     </div>
 
                   ))
@@ -1171,7 +1582,9 @@ export function PdfPageViewer() {
       )}
 
     </section>
+
   )
+
 }
 
 export default PdfPageViewer
